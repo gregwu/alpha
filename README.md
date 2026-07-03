@@ -96,6 +96,20 @@ size, liquidity sweeps, order-block distance, premium/discount in 60d
 range), sector (sector RS, breadth, momentum rank), plus daily
 cross-sectional percentile ranks of key signals.
 
+## Tested & rejected (2026-07, don't re-try blindly)
+
+- **Correlation-penalized sizing** (`corr_penalty`, kept in code, default
+  0): weight ~ 1/(vol x avg_corr) made things monotonically worse
+  (Sharpe 0.54 -> 0.48, MaxDD -39% -> -45% as penalty rose to 1.5) —
+  penalizing correlated names tilts the book into idiosyncratic
+  small-caps whose blowup risk dominates the cluster risk removed.
+- **Retuning the regime exposure ladder**: both a more defensive ladder
+  (1/.8/.4/.15/0) and full-neutral (1/1/.5/.3/.1) underperformed the
+  baseline (1/.7/.5/.3/.1). An always-100% control scored the *same
+  Sharpe* (0.53 vs 0.54) with CAGR 9.8% vs 7.4% and MaxDD -48% vs -39%:
+  the regime layer is pure risk scaling, not alpha timing — keep it for
+  drawdown control, don't expect it to add return.
+
 ## Extending (the spec's roadmap)
 
 - **Fundamentals / options factor groups**: plug into

@@ -80,6 +80,11 @@ class PortfolioConfig:
     # adjustments smaller than min_trade.
     keep_buffer: float = 3.5
     min_trade: float = 0.01
+    # Correlation-aware sizing: weight ~ 1/(vol * avg_corr^corr_penalty).
+    # Tested 2026-07 and REJECTED (Sharpe 0.54->0.48, MaxDD -39%->-45%
+    # as penalty rises 0->1.5): penalizing correlated names tilts into
+    # idiosyncratic small-caps whose blowup risk dominates. Keep at 0.
+    corr_penalty: float = 0.0
     # Gross exposure by market regime (dynamic cash allocation).
     regime_exposure: dict = field(default_factory=lambda: {
         "bull": 1.00,

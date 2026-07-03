@@ -11,6 +11,40 @@ import pandas as pd
 from .config import PORTFOLIO
 
 
+def _risk_weights(hv: pd.Series, corr: pd.Series, cfg=PORTFOLIO) -> pd.Series:
+    """Inverse marginal-risk weights: 1 / (vol * avg_corr^penalty), capped.
+
+    Marginal contribution to portfolio risk is ~ sigma_i * rho_i, so this
+    approximates equal risk contribution and de-concentrates correlated
+    clusters. Falls back to plain inverse-vol when corr is missing.
+    """
+    if cfg.weighting == "equal":
+        w = pd.Series(1.0 / len(hv), index=hv.index)
+    else:
+        sigma = hv.clip(lower=0.10)
+        sigma = sigma.fillna(sigma.median())
+        rho = corr.clip(lower=0.10, upper=1.0) ** cfg.corr_penalty
+        rho = rho.fillna(rho.median() if rho.notna().any() else 1.0)
+        iv = 1.0 / (sigma * rho)
+        w = iv / iv.sum()
+
+    # Waterfall cap: fix names at the cap, rescale the rest to the leftover
+    # budget; converges even when the cap binds for everyone.
+    capped = pd.Series(False, index=w.index)
+    for _ in range(len(w)):
+        over = (w > cfg.max_position) & ~capped
+        if not over.any():
+            break
+        capped |= over
+        w[capped] = cfg.max_position
+        free = ~capped
+        budget = 1.0 - capped.sum() * cfg.max_position
+        if budget <= 0 or w[free].sum() <= 0:
+            break
+        w[free] *= budget / w[free].sum()
+    return w
+
+
 def select_portfolio(day: pd.DataFrame, regime: str, cfg=PORTFOLIO) -> pd.DataFrame:
     """Build target weights from one day's scored universe.
 
@@ -35,27 +69,9 @@ def select_portfolio(day: pd.DataFrame, regime: str, cfg=PORTFOLIO) -> pd.DataFr
     sel = pd.DataFrame({
         "ticker": [p.ticker for p in picks],
         "hv": [getattr(p, "hv_20", np.nan) for p in picks],
+        "corr": [getattr(p, "graph_avg_corr", np.nan) for p in picks],
     })
-
-    if cfg.weighting == "inverse_vol":
-        iv = 1.0 / sel["hv"].clip(lower=0.10)          # floor vol at 10% ann.
-        iv = iv.fillna(iv.median())
-        w = iv / iv.sum()
-    else:
-        w = pd.Series(1.0 / len(sel), index=sel.index)
-
-    # Position cap with iterative redistribution
-    for _ in range(10):
-        over = w > cfg.max_position
-        if not over.any():
-            break
-        excess = (w[over] - cfg.max_position).sum()
-        w[over] = cfg.max_position
-        under = ~over
-        if w[under].sum() > 0:
-            w[under] += excess * w[under] / w[under].sum()
-        else:
-            break
+    w = _risk_weights(sel["hv"], sel["corr"], cfg)
 
     gross = cfg.regime_exposure.get(regime, 0.5)
     sel["weight"] = w * gross
@@ -78,6 +94,9 @@ def rebalance_portfolio(day: pd.DataFrame, regime: str, current: pd.Series,
     max_per_sector = max(1, int(round(cfg.max_sector * cfg.top_n)))
     sector_of = dict(zip(ranked["ticker"], ranked["sector"].fillna("Unknown")))
     hv_of = dict(zip(ranked["ticker"], ranked["hv_20"]))
+    corr_col = ranked["graph_avg_corr"] if "graph_avg_corr" in ranked.columns \
+        else pd.Series(np.nan, index=ranked.index)
+    corr_of = dict(zip(ranked["ticker"], corr_col))
 
     # 1) keep survivors (still scored and within the rank buffer)
     picks = [t for t in current.index
@@ -102,24 +121,10 @@ def rebalance_portfolio(day: pd.DataFrame, regime: str, current: pd.Series,
         return pd.Series(dtype=float)
 
     # 3) size positions (same scheme as fresh construction)
-    if cfg.weighting == "inverse_vol":
-        iv = pd.Series({t: 1.0 / max(hv_of.get(t, np.nan), 0.10) for t in picks})
-        iv = iv.fillna(iv.median())
-        w = iv / iv.sum()
-    else:
-        w = pd.Series(1.0 / len(picks), index=pd.Index(picks))
-
-    for _ in range(10):
-        over = w > cfg.max_position
-        if not over.any():
-            break
-        excess = (w[over] - cfg.max_position).sum()
-        w[over] = cfg.max_position
-        under = ~over
-        if w[under].sum() > 0:
-            w[under] += excess * w[under] / w[under].sum()
-        else:
-            break
+    idx = pd.Index(picks)
+    hv = pd.Series({t: hv_of.get(t, np.nan) for t in picks}, index=idx)
+    corr = pd.Series({t: corr_of.get(t, np.nan) for t in picks}, index=idx)
+    w = _risk_weights(hv, corr, cfg)
 
     gross = cfg.regime_exposure.get(regime, 0.5)
     target = w * gross

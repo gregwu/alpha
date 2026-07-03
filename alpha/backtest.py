@@ -28,8 +28,10 @@ def _zscore_by_date(s: pd.Series, dates: pd.Series) -> pd.Series:
 def build_scores(feat: pd.DataFrame, preds: pd.DataFrame,
                  composite: pd.Series) -> pd.DataFrame:
     """Blend ML score and composite into final_score per (ticker, date)."""
-    df = feat.loc[feat["in_universe"],
-                  ["ticker", "date", "sector", "hv_20", "close"]].copy()
+    cols = ["ticker", "date", "sector", "hv_20", "close"]
+    if "graph_avg_corr" in feat.columns:
+        cols.append("graph_avg_corr")
+    df = feat.loc[feat["in_universe"], cols].copy()
     df["composite"] = composite.loc[df.index]
     df = df.merge(preds, on=["ticker", "date"], how="left")
 
