@@ -17,7 +17,7 @@ from alpha.backtest import build_scores
 from alpha.composite import composite_score, group_score_frame
 from alpha.data import load_metadata
 from alpha.features.build import FEATURES_PATH
-from alpha.model import load_predictions
+from alpha.model import load_blended_predictions
 from alpha.regime import load_regime
 from alpha.report import (decile_returns, export_report_data,
                           factor_ic_by_regime, information_coefficient)
@@ -25,7 +25,7 @@ from alpha.report import (decile_returns, export_report_data,
 if __name__ == "__main__":
     feat = pd.read_parquet(FEATURES_PATH)
     meta = load_metadata()
-    preds = load_predictions()
+    preds = load_blended_predictions()
     regime = load_regime()
 
     comp = composite_score(feat)

@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from alpha import config as cfg
-from alpha.report import perf_metrics
+from alpha.report import perf_metrics, relative_metrics
 
 app = FastAPI(title="alpha dashboard")
 app.add_middleware(
@@ -63,7 +63,8 @@ def get_status():
     out = {}
     for label, path in [("prices", DATA / "prices.parquet"),
                         ("features", DATA / "features.parquet"),
-                        ("predictions", DATA / "predictions.parquet"),
+                        ("predictions_20d", DATA / "predictions_20d.parquet"),
+                        ("predictions_5d", DATA / "predictions_5d.parquet"),
                         ("benchmark", DATA / "benchmark.parquet")]:
         if path.exists():
             dates = pd.read_parquet(path, columns=["date"])["date"]
@@ -77,13 +78,16 @@ def get_status():
         out["regime"] = {"current": last["regime"], "as_of": str(last["date"].date()),
                          "vix": _clean(float(last["vix"])),
                          "pct_above_200": _clean(float(last["pct_above_200"]))}
-    model_pkl = MODELS / "latest_model.pkl"
-    if model_pkl.exists():
-        import pickle
-        with open(model_pkl, "rb") as f:
+    import pickle
+    models = []
+    for pkl in sorted(MODELS.glob("latest_model_*.pkl")):
+        with open(pkl, "rb") as f:
             b = pickle.load(f)
-        out["model"] = {"label": b["label"], "trained_through": b["trained_through"],
-                        "n_features": len(b["columns"])}
+        models.append({"label": b["label"], "trained_through": b["trained_through"],
+                       "n_features": len(b["columns"])})
+    if models:
+        out["model"] = models[0]      # back-compat for the header
+        out["models"] = models
     return out
 
 
@@ -95,6 +99,7 @@ def backtest_summary():
         "period": {"start": str(daily.index.min().date()), "end": str(daily.index.max().date())},
         "strategy": perf_metrics(daily, "ret"),
         "spy": perf_metrics(daily, "spy_ret"),
+        "vs_spy": relative_metrics(daily),
         "avg_gross_exposure": float(daily["gross_exposure"].mean()),
         "annual_turnover": float(daily["cost"].sum() / (cfg.PORTFOLIO.cost_bps / 1e4)
                                  / (len(daily) / 252)),
@@ -143,8 +148,8 @@ def get_report():
 
 
 @app.get("/api/importance")
-def feature_importance(top: int = 25):
-    path = _need(MODELS / "feature_importance.parquet", "scripts/03_backtest.py")
+def feature_importance(top: int = 25, horizon: int = 20):
+    path = _need(MODELS / f"feature_importance_{horizon}d.parquet", "scripts/03_backtest.py")
     imp = pd.read_parquet(path)
     mean_imp = imp.mean(axis=1).sort_values(ascending=False)
     total = mean_imp.sum()

@@ -25,19 +25,29 @@ from .features.build import all_feature_columns
 
 log = logging.getLogger(__name__)
 
-PREDICTIONS_PATH = DATA_DIR / "predictions.parquet"
-
-
 def _label_horizon(label: str) -> int:
     # "fwd_ret_20_rank" -> 20
     return int(label.split("_")[2])
 
 
+def predictions_path(label: str):
+    return DATA_DIR / f"predictions_{_label_horizon(label)}d.parquet"
+
+
+def model_path(label: str):
+    return MODELS_DIR / f"latest_model_{_label_horizon(label)}d.pkl"
+
+
+def importance_path(label: str):
+    return MODELS_DIR / f"feature_importance_{_label_horizon(label)}d.parquet"
+
+
 def walk_forward_predict(feat: pd.DataFrame, start: str, end: str | None = None,
-                         cfg=MODEL) -> pd.DataFrame:
-    """Monthly-retrained walk-forward predictions of `cfg.label`."""
+                         cfg=MODEL, label: str | None = None) -> pd.DataFrame:
+    """Monthly-retrained walk-forward predictions of one label."""
+    label = label or cfg.label
     cols = [c for c in all_feature_columns() if c in feat.columns]
-    horizon = _label_horizon(cfg.label)
+    horizon = _label_horizon(label)
     gap = pd.Timedelta(days=cfg.embargo_days + int(horizon * 1.6))  # trading->calendar
 
     feat = feat.sort_values("date")
@@ -45,7 +55,7 @@ def walk_forward_predict(feat: pd.DataFrame, start: str, end: str | None = None,
     end_ts = pd.Timestamp(end) if end else dates.max()
     fold_starts = pd.date_range(pd.Timestamp(start), end_ts, freq=cfg.retrain_freq)
 
-    trainable = feat["in_universe"] & feat[cfg.label].notna()
+    trainable = feat["in_universe"] & feat[label].notna()
     preds, importances = [], []
 
     for i, fs in enumerate(fold_starts):
@@ -62,7 +72,7 @@ def walk_forward_predict(feat: pd.DataFrame, start: str, end: str | None = None,
 
         booster = lgb.train(
             cfg.lgb_params,
-            lgb.Dataset(tr[cols], label=tr[cfg.label]),
+            lgb.Dataset(tr[cols], label=tr[label]),
             num_boost_round=cfg.num_boost_round,
         )
 
@@ -79,17 +89,37 @@ def walk_forward_predict(feat: pd.DataFrame, start: str, end: str | None = None,
                  fs.date(), len(tr), train_start.date(), train_end.date(), len(out))
 
         if i == len(fold_starts) - 1:
-            with open(MODELS_DIR / "latest_model.pkl", "wb") as f:
-                pickle.dump({"booster": booster, "columns": cols, "label": cfg.label,
+            with open(model_path(label), "wb") as f:
+                pickle.dump({"booster": booster, "columns": cols, "label": label,
                              "trained_through": str(train_end.date())}, f)
 
     result = pd.concat(preds, ignore_index=True)
-    result.to_parquet(PREDICTIONS_PATH, index=False)
+    out_path = predictions_path(label)
+    result.to_parquet(out_path, index=False)
     if importances:
-        pd.concat(importances, axis=1).to_parquet(MODELS_DIR / "feature_importance.parquet")
-    log.info("wrote %s: %d prediction rows, %d folds", PREDICTIONS_PATH, len(result), len(preds))
+        pd.concat(importances, axis=1).to_parquet(importance_path(label))
+    log.info("wrote %s: %d prediction rows, %d folds", out_path, len(result), len(preds))
     return result
 
 
-def load_predictions() -> pd.DataFrame:
-    return pd.read_parquet(PREDICTIONS_PATH)
+def load_blended_predictions(cfg=MODEL) -> pd.DataFrame:
+    """Z-score-blend the per-horizon prediction files into one ml_score."""
+    merged = None
+    zcols = []
+    for label, weight in cfg.labels.items():
+        df = pd.read_parquet(predictions_path(label))
+        col = f"ml_{_label_horizon(label)}"
+        df = df.rename(columns={"ml_score": col})
+        zcols.append((col, weight))
+        merged = df if merged is None else merged.merge(df, on=["ticker", "date"], how="outer")
+
+    total_w = sum(w for _, w in zcols)
+    blend = 0.0
+    any_valid = pd.Series(False, index=merged.index)
+    for col, weight in zcols:
+        by_date = merged.groupby("date")[col]
+        z = (merged[col] - by_date.transform("mean")) / by_date.transform("std")
+        blend = blend + (weight / total_w) * z.fillna(0.0)
+        any_valid |= z.notna()
+    merged["ml_score"] = blend.where(any_valid)
+    return merged[["ticker", "date", "ml_score"]]

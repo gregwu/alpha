@@ -28,6 +28,8 @@ FACTOR_SIGNS = {
     "hv_expansion_5": 0, "dist_bear_ob": 0, "di_diff": 1,
     # graph: neighbor momentum propagates to laggards (gap is contrarian)
     "graph_mom_gap_20": -1, "graph_centrality": 0, "graph_avg_corr": 0,
+    # fundamentals: leverage and dilution are negatives
+    "debt_equity": -1, "shares_growth_yoy": -1,
 }
 
 # Groups that participate in the composite (momentum folds into trend/RS
@@ -38,6 +40,7 @@ COMPOSITE_GROUP_MAP = {
     "volume": ["volume"],
     "volatility": ["volatility"],
     "structure": ["structure"],
+    "fundamentals": ["fundamentals"],   # PIT EDGAR data (spec weight 15%)
 }
 
 # Factor attribution reports on the composite groups plus ML-only families.
@@ -76,7 +79,13 @@ def composite_score(feat: pd.DataFrame) -> pd.Series:
         signed = z * np.array(signs, dtype=float)
         group_scores[group] = signed.mean(axis=1, skipna=True)
 
-    comp = sum((w / total_w) * group_scores[g] for g, w in available.items())
+    # NaN-aware weighted average: a stock missing a whole group (e.g. no
+    # EDGAR coverage) is scored on its available groups, reweighted.
+    gs = pd.DataFrame(group_scores)
+    w = pd.Series({g: available[g] / total_w for g in gs.columns})
+    weighted = gs.mul(w, axis=1)
+    wsum = gs.notna().mul(w, axis=1).sum(axis=1)
+    comp = weighted.sum(axis=1, skipna=True) / wsum.replace(0, np.nan)
     out = pd.Series(np.nan, index=feat.index, name="composite")
     out.loc[df.index] = comp
     return out

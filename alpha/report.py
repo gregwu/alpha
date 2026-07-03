@@ -30,6 +30,30 @@ def perf_metrics(daily: pd.DataFrame, ret_col: str = "ret") -> dict:
     }
 
 
+def relative_metrics(daily: pd.DataFrame, ret_col: str = "ret",
+                     bench_col: str = "spy_ret") -> dict:
+    """Benchmark-relative view: the numbers that answer 'does it beat SPY'."""
+    r = daily[ret_col].dropna()
+    b = daily[bench_col].reindex(r.index).fillna(0.0)
+    if r.empty:
+        return {}
+    years = len(r) / 252
+    excess = r - b
+    te = excess.std() * np.sqrt(252)
+    beta = r.cov(b) / b.var() if b.var() > 0 else np.nan
+    alpha_ann = (r.mean() - beta * b.mean()) * 252
+    strat_cagr = (1 + r).prod() ** (1 / years) - 1
+    spy_cagr = (1 + b).prod() ** (1 / years) - 1
+    return {
+        "ExcessCAGR": strat_cagr - spy_cagr,
+        "InfoRatio": (excess.mean() * 252) / te if te > 0 else np.nan,
+        "TrackingErr": te,
+        "Beta": beta,
+        "AlphaAnn": alpha_ann,
+        "PctDaysBeatSPY": (r > b).mean(),
+    }
+
+
 def information_coefficient(scores: pd.DataFrame, feat: pd.DataFrame,
                             horizon: int = 20) -> pd.DataFrame:
     """Daily Spearman IC of ml/composite/final scores vs forward returns."""
@@ -102,6 +126,28 @@ def export_report_data(ic: pd.DataFrame, deciles: pd.Series,
     (REPORTS_DIR / "report_data.json").write_text(json.dumps(data, indent=1))
 
 
+def append_metrics_history(daily, ic, m_strat, rel, ann_turnover) -> None:
+    """One row per research run -> reports/metrics_history.csv. This is
+    the audit trail for how the strategy's edge drifts as the walk-forward
+    window rolls (the spec's 'factors must keep earning their place')."""
+    ml_ic = ic["ml_score"].dropna() if "ml_score" in ic else pd.Series(dtype=float)
+    row = {
+        "run_date": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
+        "period_end": str(daily.index.max().date()),
+        "cagr": round(m_strat["CAGR"], 4),
+        "sharpe": round(m_strat["Sharpe"], 3),
+        "max_dd": round(m_strat["MaxDD"], 4),
+        "excess_cagr": round(rel.get("ExcessCAGR", float("nan")), 4),
+        "info_ratio": round(rel.get("InfoRatio", float("nan")), 3),
+        "ml_ic": round(float(ml_ic.mean()), 5) if len(ml_ic) else None,
+        "turnover": round(ann_turnover, 1),
+        "avg_gross": round(float(daily["gross_exposure"].mean()), 3),
+    }
+    path = REPORTS_DIR / "metrics_history.csv"
+    hist = pd.DataFrame([row])
+    hist.to_csv(path, mode="a", header=not path.exists(), index=False)
+
+
 def write_report(daily: pd.DataFrame, ic: pd.DataFrame, deciles: pd.Series,
                  attribution: pd.DataFrame, holdings: pd.DataFrame) -> str:
     """Text report + charts saved under reports/."""
@@ -123,6 +169,13 @@ def write_report(daily: pd.DataFrame, ic: pd.DataFrame, deciles: pd.Series,
         lines.append(f"{k:<12}" + pct.format(m_strat[k]) + pct.format(m_spy[k]))
     lines.append("")
 
+    rel = relative_metrics(daily)
+    lines.append("vs SPY (the goal):")
+    for k, v in rel.items():
+        fmt = "{:+.2f}" if k in ("InfoRatio", "Beta") else "{:+.2%}"
+        lines.append(f"  {k:<16}{fmt.format(v)}")
+    lines.append("")
+
     if not ic.empty:
         lines.append("Information coefficient (daily Spearman vs fwd 20d return):")
         for c in ic.columns:
@@ -142,6 +195,7 @@ def write_report(daily: pd.DataFrame, ic: pd.DataFrame, deciles: pd.Series,
 
     (REPORTS_DIR / "backtest_report.txt").write_text(text)
     export_report_data(ic, deciles, attribution)
+    append_metrics_history(daily, ic, m_strat, rel, ann_turnover)
 
     fig, axes = plt.subplots(3, 1, figsize=(11, 12), sharex=False,
                              gridspec_kw={"height_ratios": [3, 1, 1]})

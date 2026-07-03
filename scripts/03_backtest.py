@@ -17,7 +17,8 @@ from alpha.composite import composite_score, group_score_frame
 from alpha.config import BACKTEST, DATA_DIR
 from alpha.data import load_benchmark, load_metadata, load_prices
 from alpha.features.build import FEATURES_PATH
-from alpha.model import walk_forward_predict, load_predictions
+from alpha.config import MODEL
+from alpha.model import walk_forward_predict, load_blended_predictions
 from alpha.regime import compute_breadth, classify_regime
 from alpha.report import (decile_returns, factor_ic_by_regime,
                           information_coefficient, write_report)
@@ -42,11 +43,11 @@ if __name__ == "__main__":
     ).dropna().to_parquet(DATA_DIR / "composite.parquet", index=False)
     log.info("composite done")
 
-    # Walk-forward ML
-    if SKIP_ML:
-        preds = load_predictions()
-    else:
-        preds = walk_forward_predict(feat, start=BACKTEST.start)
+    # Walk-forward ML: one model per label horizon, blended by z-score
+    if not SKIP_ML:
+        for label in MODEL.labels:
+            walk_forward_predict(feat, start=BACKTEST.start, label=label)
+    preds = load_blended_predictions()
 
     # Blend, construct, backtest
     feat["sector"] = feat["ticker"].map(meta.set_index("ticker")["sector"])

@@ -1,7 +1,14 @@
 #!/bin/sh
-# Stop the alpha web dashboard started by start.sh.
+# Stop the alpha web dashboard (launchd-managed or manual).
 cd "$(dirname "$0")"
 PID_FILE=".web.pid"
+JOB="com.gangwu.alpha.dashboard"
+
+if launchctl list 2>/dev/null | grep -q "$JOB"; then
+    launchctl bootout "gui/$(id -u)/$JOB"
+    echo "unloaded launchd dashboard job (re-enable with scripts/install_launchd.sh or launchctl bootstrap)"
+    exit 0
+fi
 
 if [ ! -f "$PID_FILE" ]; then
     echo "no pid file — not running?"

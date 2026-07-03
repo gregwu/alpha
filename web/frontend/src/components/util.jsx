@@ -37,9 +37,11 @@ export function RegimeChip({ regime }) {
   )
 }
 
-export function StatTile({ label, value, delta, deltaGoodWhenUp = true }) {
+export function StatTile({ label, value, delta, deltaGoodWhenUp = true, tone }) {
   let cls = ''
-  if (delta != null) {
+  if (tone) {
+    cls = tone
+  } else if (delta != null) {
     const up = !String(delta).startsWith('-')
     cls = up === deltaGoodWhenUp ? 'up' : 'down'
   }

@@ -10,18 +10,22 @@ export default function Dashboard() {
   if (!summary || !series) return <Loading error={e1 || e2} />
   const s = summary.strategy
   const b = summary.spy
+  const v = summary.vs_spy || {}
 
   return (
     <>
       <div className="tile-row">
+        <StatTile label="Excess CAGR vs SPY" value={fmtPct(v.ExcessCAGR)}
+          delta={v.ExcessCAGR >= 0 ? 'beating SPY' : 'behind SPY'}
+          tone={v.ExcessCAGR >= 0 ? 'up' : 'down'} />
         <StatTile label="CAGR" value={fmtPct(s.CAGR)}
           delta={`SPY ${fmtPct(b.CAGR)}`} />
         <StatTile label="Sharpe" value={fmtNum(s.Sharpe)}
           delta={`SPY ${fmtNum(b.Sharpe)}`} />
+        <StatTile label="Info ratio vs SPY" value={fmtNum(v.InfoRatio)}
+          delta={`beta ${fmtNum(v.Beta)}`} />
         <StatTile label="Max drawdown" value={fmtPct(s.MaxDD)}
           delta={`SPY ${fmtPct(b.MaxDD)}`} />
-        <StatTile label="Ann. volatility" value={fmtPct(s.AnnVol)}
-          delta={`SPY ${fmtPct(b.AnnVol)}`} />
         <StatTile label="Avg gross exposure" value={fmtPct(summary.avg_gross_exposure, 0)} />
         <StatTile label="Turnover (1-way, ann.)" value={`${fmtNum(summary.annual_turnover, 1)}x`} />
       </div>

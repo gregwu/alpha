@@ -62,6 +62,11 @@ def run_backtest(scores: pd.DataFrame, prices: pd.DataFrame, regime: pd.DataFram
     rebal_days = rebal_days.sort_values()
 
     regime_by_date = regime.set_index("date")["regime"]
+    # Daily financing rate for leverage (T-bill + spread), forward-filled
+    rate = (bench.set_index("date")["tbill_rate"]
+            if "tbill_rate" in bench.columns else pd.Series(dtype=float))
+    daily_rate = (rate.reindex(px.index).ffill().fillna(0.03)
+                  + pcfg.financing_spread) / 252.0
     scores_by_date = dict(tuple(scores.groupby("date", sort=True)))
     score_dates = np.array(sorted(scores_by_date.keys()))
 
@@ -99,9 +104,11 @@ def run_backtest(scores: pd.DataFrame, prices: pd.DataFrame, regime: pd.DataFram
                     pd.DataFrame({"date": day, "ticker": target.index,
                                   "weight": target.values, "regime": reg}))
 
-        net_ret = gross_ret - cost
+        financing = max(float(weights.sum()) - 1.0, 0.0) * float(daily_rate.get(day, 0.0))
+        net_ret = gross_ret - cost - financing
         rows.append({"date": day, "ret": net_ret, "gross_exposure": float(weights.sum()),
-                     "n_holdings": int((weights > 0).sum()), "cost": cost})
+                     "n_holdings": int((weights > 0).sum()), "cost": cost,
+                     "financing": financing})
 
     daily = pd.DataFrame(rows).set_index("date")
     spy = bench.set_index("date")["spy_close"].pct_change(fill_method=None)

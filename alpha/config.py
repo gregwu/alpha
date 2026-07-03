@@ -47,7 +47,14 @@ class FeatureConfig:
 
 @dataclass
 class ModelConfig:
-    label: str = "fwd_ret_20_rank"    # cross-sectional rank of 20d forward return
+    # Two ranking models blended: the 5d model has the higher IC at both
+    # horizons (fast label = more independent training examples), the 20d
+    # model diversifies it. Weights are z-score blend weights.
+    labels: dict = field(default_factory=lambda: {
+        "fwd_ret_20_rank": 0.5,
+        "fwd_ret_5_rank": 0.5,
+    })
+    label: str = "fwd_ret_20_rank"    # primary label (reports/back-compat)
     train_years: int = 4              # trailing training window
     retrain_freq: str = "MS"          # month start
     embargo_days: int = 21            # purge gap between train end and prediction
@@ -70,7 +77,7 @@ class ModelConfig:
 
 @dataclass
 class PortfolioConfig:
-    top_n: int = 30
+    top_n: int = 20
     weighting: str = "inverse_vol"    # "equal" or "inverse_vol"
     max_position: float = 0.05
     max_sector: float = 0.20
@@ -85,15 +92,27 @@ class PortfolioConfig:
     # as penalty rises 0->1.5): penalizing correlated names tilts into
     # idiosyncratic small-caps whose blowup risk dominates. Keep at 0.
     corr_penalty: float = 0.0
-    # Gross exposure by market regime (dynamic cash allocation).
+    # Gross exposure by market regime. Goal is to beat SPY, so the default
+    # is fully invested: every throttled ladder tested (2026-07) cost more
+    # return than it saved (regime gating = risk scaling, not alpha
+    # timing). For a drawdown-managed profile use e.g.
+    # {"bull":1,"neutral":.7,"high_vol":.5,"bear":.3,"panic":.1}
+    # (Sharpe ~same, CAGR -3pts, MaxDD -42%->-27%).
+    # bull 1.25 = the lev_trend insight sized to this book: modest leverage
+    # only in confirmed uptrends (financing = tbill + spread, charged in
+    # the backtest). Tested 2026-07: 1.5x-2x ladders all worse (variance
+    # drag + financing on a 26%-vol book); 1.25 was best on excess/IR.
     regime_exposure: dict = field(default_factory=lambda: {
-        "bull": 1.00,
-        "neutral": 0.70,
-        "high_vol": 0.50,
-        "bear": 0.30,
-        "panic": 0.10,
+        "bull": 1.25,
+        "neutral": 1.00,
+        "high_vol": 1.00,
+        "bear": 1.00,
+        "panic": 1.00,
     })
     cost_bps: float = 10.0            # one-way transaction cost, basis points
+    # Financing on gross exposure above 1.0: charged daily at
+    # tbill_rate + financing_spread on the borrowed fraction.
+    financing_spread: float = 0.01
 
 
 @dataclass

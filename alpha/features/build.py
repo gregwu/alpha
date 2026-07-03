@@ -67,6 +67,11 @@ FEATURE_GROUPS = {
         "graph_nbr_ret_20", "graph_nbr_rs_20", "graph_nbr_ret_60",
         "graph_mom_gap_20", "graph_centrality", "graph_avg_corr",
     ],
+    "fundamentals": [
+        "rev_growth_yoy", "eps_growth_yoy", "shares_growth_yoy",
+        "roe_ttm", "roa_ttm", "gross_margin_ttm", "debt_equity",
+        "fcf_margin_ttm", "earnings_yield", "fcf_yield",
+    ],
 }
 
 
@@ -125,6 +130,9 @@ def build_features(n_workers: int = 6) -> pd.DataFrame:
     from .graph import add_graph_features
     feat = add_graph_features(feat, prices)
     log.info("graph features done")
+
+    from .fundamentals import add_fundamental_features
+    feat = add_fundamental_features(feat)
 
     feat = add_labels(feat)
 

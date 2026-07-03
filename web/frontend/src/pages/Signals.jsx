@@ -8,6 +8,7 @@ const GROUP_LABELS = {
   score_volume: 'Volume',
   score_volatility: 'Volatility',
   score_structure: 'Structure',
+  score_fundamentals: 'Fundamentals',
   score_graph: 'Graph',
 }
 

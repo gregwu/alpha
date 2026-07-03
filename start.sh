@@ -1,11 +1,19 @@
 #!/bin/sh
-# Start the alpha web dashboard (FastAPI serving the built React frontend).
-# Usage: ./start.sh [port]   (default 8100)
+# Start (or restart) the alpha web dashboard.
+# If the launchd keepalive job is installed (scripts/install_launchd.sh),
+# it owns the process; otherwise fall back to a manual nohup instance.
 set -e
 cd "$(dirname "$0")"
 
 PORT="${1:-8100}"
 PID_FILE=".web.pid"
+JOB="com.gangwu.alpha.dashboard"
+
+if launchctl list 2>/dev/null | grep -q "$JOB"; then
+    launchctl kickstart -k "gui/$(id -u)/$JOB"
+    echo "restarted launchd-managed dashboard at http://localhost:8100"
+    exit 0
+fi
 
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
     echo "already running (pid $(cat "$PID_FILE")) — ./stop.sh first"

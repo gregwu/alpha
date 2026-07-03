@@ -17,12 +17,33 @@ Daily OHLCV (Postgres stock_data, 3,014 tickers, 2012+)
 ## Quick start
 
 ```sh
-./run.sh                  # refresh data + features + regime + live ranking
+./run.sh                  # daily: data + features + regime + live boosters + ranking
 ./run.sh --sync           # also update the DB via yahoostock sync_yahoo.py first
-./run.sh --with-backtest  # additionally re-run the full walk-forward backtest
+./run.sh --fundamentals   # force EDGAR companyfacts refresh (else auto-monthly)
+./run.sh --with-backtest  # force the full walk-forward backtest (else auto-monthly)
 ./start.sh                # web dashboard at http://localhost:8100
 ./stop.sh
+./scripts/install_launchd.sh   # fully hands-off: pipeline weekdays 18:30 +
+                               # dashboard keepalive at login (auto-restart)
 ```
+
+Execution (`trading/` — vendored from tradingview-mcp):
+`trading_service.py` is the only process that talks to Alpaca (Flask on
+:8787, token auth, PAPER unless `trading/.env` sets `ALPACA_LIVE=1`;
+launchd keepalive `com.gangwu.alpha.trading`). `scripts/09_alpha_bot.py`
+publishes the pipeline's weekly target through it — local paper book by
+default, `--live-trade` routes orders, `--live-ok` additionally required
+for a LIVE service. Weekly-idempotent, stale-target guard, position/gross
+ceilings, history in `reports/alpha_bot_trades.csv`. `./run.sh --trade`
+chains it after the daily ranking. The three reference bots
+(momentum / lev_trend / rsi_pivot) and `run_bot.sh` are vendored
+alongside; Alpaca keys live in `trading/.env` (gitignored).
+
+Automated housekeeping: EDGAR fundamentals re-download when >25 days old;
+full walk-forward retrain when predictions >28 days old; live rankings
+refuse data >3 business days stale (`--allow-stale` overrides); every
+research run appends to `reports/metrics_history.csv` (edge-drift audit
+trail); logs and daily rank CSVs pruned after 90 days.
 
 ## Web dashboard (`web/`)
 
@@ -57,9 +78,12 @@ DB credentials come from `.env` (same Postgres as pattern_scan, port 5433).
   $20M, >=300 days of history, sector known (filters out ETFs/funds).
   Market-cap >= $1B is applied **only live** — the metadata snapshot is
   current-day, so using it historically would inject survivorship bias.
-- **Ranking, not prediction** (`alpha/model.py`): label = percentile rank
-  of 20d forward return within that day's universe. Monthly retrain on a
-  4-year trailing window.
+- **Ranking, not prediction** (`alpha/model.py`): two LightGBM models,
+  labels = percentile rank of 5d and 20d forward return within that
+  day's universe, blended 50/50 by daily z-score. The 5d model has the
+  higher IC at *both* horizons (faster label = more independent training
+  examples). Monthly retrain on a 4-year trailing window.
+  Blended IC +0.023 vs fwd 20d; decile spread D1 +0.71% -> D10 +1.17%.
 - **Composite** (`alpha/composite.py`): winsorized cross-sectional
   z-scores per factor family, spec weights (RS 25 / trend+momentum 20 /
   volume 15 / vol 10 / structure 10). Fundamentals & options weights are
@@ -96,6 +120,18 @@ size, liquidity sweeps, order-block distance, premium/discount in 60d
 range), sector (sector RS, breadth, momentum rank), plus daily
 cross-sectional percentile ranks of key signals.
 
+## Current results (walk-forward 2016 -> 2026-07, 10bps costs + financing)
+
+Goal: beat SPY — currently met. Config: top-20, 5d+20d ML blend,
+PIT EDGAR fundamentals, bull-regime leverage 1.25x (financing charged
+at T-bill + 1%). **CAGR 16.4% vs SPY 15.0% (excess +1.4%, info ratio
++0.19, alpha +1.1%/yr, beta 1.18)**, Sharpe 0.67 vs 0.87, MaxDD -46%
+vs -34%, turnover 50x one-way. The excess return is paid for with
+higher vol and deeper drawdowns; a drawdown-managed profile (top-30 +
+defensive regime ladder, see `PortfolioConfig.regime_exposure` comment)
+runs MaxDD ~-27% at ~9% CAGR. Adding fundamentals was what flipped the
+excess return positive (25% of 20d-model gain).
+
 ## Tested & rejected (2026-07, don't re-try blindly)
 
 - **Correlation-penalized sizing** (`corr_penalty`, kept in code, default
@@ -112,11 +148,14 @@ cross-sectional percentile ranks of key signals.
 
 ## Extending (the spec's roadmap)
 
-- **Fundamentals / options factor groups**: plug into
-  `FEATURE_GROUPS` + composite weights; needs point-in-time sources
-  (yfinance snapshots are current-only — fine live, leaky in backtests).
+- **Fundamentals**: DONE — point-in-time from SEC EDGAR companyfacts
+  (`scripts/08_fundamentals.py`, features available on *filing* date).
+  Refresh the bulk zip + re-run monthly.
+- **Options flow**: dropped — yfinance options data is unreliable (no
+  history, stale OI); would need a paid source (ORATS/CBOE) to do
+  honestly. The 5% composite weight stays redistributed.
 - **Richer graph edges**: supply-chain links and common institutional
   ownership alongside the existing correlation edges.
-- **Monthly feedback loop**: rerun 02+03; `models/feature_importance.parquet`
-  and the factor-IC-by-regime table in the report show which families are
-  earning their place.
+- **Monthly feedback loop**: rerun 02+03; per-horizon
+  `models/feature_importance_{5,20}d.parquet` and the
+  factor-IC-by-regime table show which families are earning their place.

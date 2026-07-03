@@ -80,20 +80,23 @@ def snapshot_benchmark(start: str | None = None) -> pd.DataFrame:
     start = start or FEATURES.start_date
     spy = yf.download("SPY", start=start, progress=False, auto_adjust=True)
     vix = yf.download("^VIX", start=start, progress=False, auto_adjust=True)
+    irx = yf.download("^IRX", start=start, progress=False, auto_adjust=True)
     if isinstance(spy.columns, pd.MultiIndex):
         spy.columns = spy.columns.get_level_values(0)
         vix.columns = vix.columns.get_level_values(0)
+        irx.columns = irx.columns.get_level_values(0)
     bench = pd.DataFrame({
         "spy_close": spy["Close"],
         "spy_high": spy["High"],
         "spy_low": spy["Low"],
         "spy_volume": spy["Volume"],
         "vix": vix["Close"],
+        "tbill_rate": irx["Close"] / 100.0,   # 13wk T-bill, annualized decimal
     })
     bench.index.name = "date"
     bench = bench.reset_index()
     bench["date"] = pd.to_datetime(bench["date"]).dt.tz_localize(None)
-    bench["vix"] = bench["vix"].ffill()
+    bench[["vix", "tbill_rate"]] = bench[["vix", "tbill_rate"]].ffill()
     bench.to_parquet(BENCH_PATH, index=False)
     log.info("wrote %s: %d rows through %s", BENCH_PATH, len(bench), bench["date"].max().date())
     return bench
