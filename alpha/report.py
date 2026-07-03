@@ -80,6 +80,28 @@ def factor_ic_by_regime(feat: pd.DataFrame, group_scores: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
+def export_report_data(ic: pd.DataFrame, deciles: pd.Series,
+                       attribution: pd.DataFrame) -> None:
+    """Structured diagnostics for the web dashboard."""
+    import json
+
+    data = {
+        "ic": {
+            c: {"mean": float(s.mean()), "ir": float(s.mean() / s.std()),
+                "pct_positive": float((s > 0).mean())}
+            for c in ic.columns if len(s := ic[c].dropna())
+        },
+        "deciles": [{"decile": int(d), "fwd_ret_20": float(v)}
+                    for d, v in deciles.items()],
+        "attribution": [
+            {"regime": idx, **{k: (None if pd.isna(v) else round(float(v), 5))
+                               for k, v in row.items()}}
+            for idx, row in attribution.iterrows()
+        ],
+    }
+    (REPORTS_DIR / "report_data.json").write_text(json.dumps(data, indent=1))
+
+
 def write_report(daily: pd.DataFrame, ic: pd.DataFrame, deciles: pd.Series,
                  attribution: pd.DataFrame, holdings: pd.DataFrame) -> str:
     """Text report + charts saved under reports/."""
@@ -119,6 +141,7 @@ def write_report(daily: pd.DataFrame, ic: pd.DataFrame, deciles: pd.Series,
     text = "\n".join(lines)
 
     (REPORTS_DIR / "backtest_report.txt").write_text(text)
+    export_report_data(ic, deciles, attribution)
 
     fig, axes = plt.subplots(3, 1, figsize=(11, 12), sharex=False,
                              gridspec_kw={"height_ratios": [3, 1, 1]})

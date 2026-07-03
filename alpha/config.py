@@ -75,6 +75,11 @@ class PortfolioConfig:
     max_position: float = 0.05
     max_sector: float = 0.20
     rebalance_freq: str = "W-MON"     # weekly rebalance
+    # Turnover controls: hold an existing position until its rank decays
+    # below top_n * keep_buffer (asymmetric entry/exit), and skip weight
+    # adjustments smaller than min_trade.
+    keep_buffer: float = 3.5
+    min_trade: float = 0.01
     # Gross exposure by market regime (dynamic cash allocation).
     regime_exposure: dict = field(default_factory=lambda: {
         "bull": 1.00,

@@ -16,3 +16,9 @@ reports/
 .idea/
 .vscode/
 .claude/
+logs/
+.web.pid
+
+# Web build artifacts
+web/frontend/node_modules/
+web/frontend/dist/

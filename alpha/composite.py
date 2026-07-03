@@ -26,6 +26,8 @@ FACTOR_SIGNS = {
     "beta_60": 0, "spy_corr_60": 0, "ret_skew_60": 0,   # 0 = excluded from composite
     "log_dollar_vol": 0, "csr_log_dollar_vol": 0, "vol_pctile_250": 0,
     "hv_expansion_5": 0, "dist_bear_ob": 0, "di_diff": 1,
+    # graph: neighbor momentum propagates to laggards (gap is contrarian)
+    "graph_mom_gap_20": -1, "graph_centrality": 0, "graph_avg_corr": 0,
 }
 
 # Groups that participate in the composite (momentum folds into trend/RS
@@ -37,6 +39,9 @@ COMPOSITE_GROUP_MAP = {
     "volatility": ["volatility"],
     "structure": ["structure"],
 }
+
+# Factor attribution reports on the composite groups plus ML-only families.
+ATTRIBUTION_GROUP_MAP = {**COMPOSITE_GROUP_MAP, "graph": ["graph"]}
 
 
 def _zscore_by_date(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
@@ -81,7 +86,7 @@ def group_score_frame(feat: pd.DataFrame) -> pd.DataFrame:
     """Per-group z-scores for factor attribution (in-universe rows)."""
     df = feat[feat["in_universe"]].copy()
     out = pd.DataFrame(index=feat.index)
-    for group, fams in COMPOSITE_GROUP_MAP.items():
+    for group, fams in ATTRIBUTION_GROUP_MAP.items():
         cols, signs = [], []
         for fam in fams:
             for c in FEATURE_GROUPS[fam]:

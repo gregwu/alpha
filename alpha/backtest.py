@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from .config import BACKTEST, COMPOSITE, DATA_DIR, PORTFOLIO
-from .portfolio import select_portfolio
+from .portfolio import rebalance_portfolio
 
 log = logging.getLogger(__name__)
 
@@ -87,8 +87,7 @@ def run_backtest(scores: pd.DataFrame, prices: pd.DataFrame, regime: pd.DataFram
                     else regime_by_date.loc[day]
                 if isinstance(reg, pd.Series):
                     reg = reg.iloc[-1]
-                target = select_portfolio(sday, reg or "neutral", pcfg)
-                target = target.set_index("ticker")["weight"]
+                target = rebalance_portfolio(sday, reg or "neutral", weights, pcfg)
                 turnover = (target.reindex(weights.index.union(target.index), fill_value=0)
                             - weights.reindex(weights.index.union(target.index), fill_value=0)
                             ).abs().sum()

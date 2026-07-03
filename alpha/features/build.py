@@ -63,6 +63,10 @@ FEATURE_GROUPS = {
         "sector_ret_20", "sector_ret_60", "sector_pct_above_50",
         "sector_pct_above_200", "sector_mom_rank",
     ],
+    "graph": [
+        "graph_nbr_ret_20", "graph_nbr_rs_20", "graph_nbr_ret_60",
+        "graph_mom_gap_20", "graph_centrality", "graph_avg_corr",
+    ],
 }
 
 
@@ -117,6 +121,11 @@ def build_features(n_workers: int = 6) -> pd.DataFrame:
 
     feat["in_universe"] = compute_universe_mask(feat, tradable_tickers=stock_tickers(meta))
     feat = cs.add_cs_ranks(feat)
+
+    from .graph import add_graph_features
+    feat = add_graph_features(feat, prices)
+    log.info("graph features done")
+
     feat = add_labels(feat)
 
     # Compact dtypes to keep the parquet manageable
