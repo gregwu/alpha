@@ -47,6 +47,11 @@ export default function Rankings() {
                 <th className="num">RS 20d</th>
                 <th className="num">HV 20</th>
                 <th className="num">Mkt cap</th>
+                <th className="num">P/E</th>
+                <th className="num">EPS YoY</th>
+                <th className="num">Rev YoY</th>
+                <th className="num">ROE</th>
+                <th className="num">D/E</th>
               </tr>
             </thead>
             <tbody>
@@ -63,6 +68,11 @@ export default function Rankings() {
                   <td className="num">{fmtPct(r.rs_20, 1)}</td>
                   <td className="num">{fmtPct(r.hv_20, 0)}</td>
                   <td className="num">{fmtCompact(r.market_cap)}</td>
+                  <td className="num">{fmtNum(r.live_pe, 1)}</td>
+                  <td className="num">{r.live_eps_yoy == null ? '—' : `${r.live_eps_yoy}%`}</td>
+                  <td className="num">{r.live_revenue_yoy == null ? '—' : `${r.live_revenue_yoy}%`}</td>
+                  <td className="num">{r.live_roe == null ? '—' : `${r.live_roe}%`}</td>
+                  <td className="num">{fmtNum(r.live_debt_to_equity, 1)}</td>
                 </tr>
               ))}
             </tbody>

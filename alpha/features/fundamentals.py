@@ -30,7 +30,7 @@ FUND_PATH = DATA_DIR / "fundamentals.parquet"
 CONCEPTS = {
     "revenue": ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
                 "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax"],
-    "net_income": ["NetIncomeLoss"],
+    "net_income": ["NetIncomeLoss", "ProfitLoss"],
     "eps": ["EarningsPerShareDiluted", "EarningsPerShareBasic"],
     "equity": ["StockholdersEquity",
                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"],
@@ -46,8 +46,12 @@ SHARES_CONCEPT = ("dei", "EntityCommonStockSharesOutstanding", "shares")
 
 
 def _extract_series(facts: dict, taxonomy: str, names: list[str], unit: str):
-    """Best available (end, filed, val, duration) rows for a concept."""
+    """(end, filed, val, duration) rows for a concept, UNIONED across all
+    candidate tags. Companies switch tags over their life (e.g.
+    SalesRevenueNet -> RevenueFromContract...), so any single tag holds
+    only part of the history; earlier-listed tags win on collisions."""
     tax = facts.get(taxonomy, {})
+    seen = {}   # (end, duration_bucket) -> row; first (higher-priority) tag wins
     for name in names:
         node = tax.get(name)
         if not node:
@@ -55,17 +59,16 @@ def _extract_series(facts: dict, taxonomy: str, names: list[str], unit: str):
         rows = node.get("units", {}).get(unit)
         if not rows:
             continue
-        out = []
         for r in rows:
             if r.get("form") not in ("10-K", "10-Q", "10-K/A", "10-Q/A", "20-F", "40-F"):
                 continue
             start = r.get("start")
             dur = ((pd.Timestamp(r["end"]) - pd.Timestamp(start)).days
                    if start else np.nan)
-            out.append((r["end"], r["filed"], r["val"], dur))
-        if out:
-            return out
-    return []
+            key = (r["end"], round(dur / 30) if dur == dur else -1)
+            if key not in seen:
+                seen[key] = (r["end"], r["filed"], r["val"], dur)
+    return list(seen.values())
 
 
 def parse_companyfacts(zip_path, tickers_base: set) -> pd.DataFrame:

@@ -80,6 +80,26 @@ if __name__ == "__main__":
                 "ret_20", "rs_20", "hv_20", "market_cap"]
     out = ranked[out_cols].reset_index(drop=True)
     out.index += 1
+
+    # Enrich the top names with LIVE EDGAR fundamentals (real-time per-ticker
+    # API — fresher than the monthly bulk archive; cached + SEC-throttled).
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "trading"))
+        import edgar_fundamentals as E
+
+        cik = E.ticker_to_cik()
+        top = out.head(60)
+        live = {}
+        for t, px in zip(top["ticker"], top["close"]):
+            f = E.get_fundamentals(t.replace(".US", ""), cik, price=float(px))
+            if not f.get("error"):
+                live[t] = f
+        for col in ("pe", "eps_yoy", "revenue_yoy", "roe", "debt_to_equity"):
+            out[f"live_{col}"] = out["ticker"].map(
+                lambda t: live.get(t, {}).get(col))
+        print(f"live EDGAR fundamentals: {len(live)}/{len(top)} top names enriched")
+    except Exception as e:  # noqa: BLE001 — enrichment must never block ranking
+        print(f"live fundamentals enrichment skipped: {e}")
     path = REPORTS_DIR / f"rank_{asof.date()}.csv"
     out.to_csv(path)
     print(f"wrote {path}")
